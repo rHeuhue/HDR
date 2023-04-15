@@ -1,16 +1,7 @@
-#if defined _hdeathrun_const_included
+#if defined _hdr_const_included
 	#endinput
 #endif
-#define _hdeathrun_const_included
-
-/* Load custom module ?
-
-#pragma reqlib LIBRARY_NAME
-#if !defined AMXMODX_NOAUTOLOAD
-	#pragma loadlib LIBRARY_NAME
-#endif
-
-*/
+#define _hdr_const_included
 
 public stock const MOD_VERSION[] = "HDR_ReAPI_0.0.2"
 public stock const MOD_AUTHOR[] = "Huehue"
