@@ -4,6 +4,9 @@
 
 #include <hdr_const>
 
+#include <time>
+#include <nvault>
+
 new const PLUGIN[] = "HDR: Core Manager"
 new const PLUGIN_CVAR[] = "hdr_core_manager"
 
@@ -48,11 +51,22 @@ new bool:g_bHasSemiclip[MAX_PLAYERS + 1]
 
 #define SEMICLIP_DISTANCE 260.0 /* 512.0 */
 
+// Playtime feature
+new gVault
+new g_iPlayer_Connections[MAX_PLAYERS + 1], g_iPlayer_PlayedTime[MAX_PLAYERS + 1]
+
+stock get_user_total_playtime(id)
+{
+	return g_iPlayer_PlayedTime[id] + get_user_time(id)
+}
+
 public plugin_init()
 {
 	register_plugin(PLUGIN, MOD_VERSION, MOD_AUTHOR);
 	register_cvar(PLUGIN_CVAR, MOD_VERSION, FCVAR_SERVER | FCVAR_SPONLY)
 	set_cvar_string(PLUGIN_CVAR, MOD_VERSION)
+
+	register_dictionary("time.txt")
 
 	bind_pcvar_num(create_cvar("hdr_active", "1", FCVAR_NONE, "Whether the HDR Mod is enabled or not", true, 0.0, true, 1.0), g_eCvars[TOGGLE])
 	bind_pcvar_num(create_cvar("hdr_block_spray", "1", FCVAR_NONE, "Whether player can spray on the map or not", true, 0.0, true, 1.0), g_eCvars[BLOCK_SPRAY])
@@ -119,6 +133,12 @@ public plugin_init()
 	register_clcmd("radio1", "Block_RadioCommands")
 	register_clcmd("radio2", "Block_RadioCommands")
 	register_clcmd("radio3", "Block_RadioCommands")
+
+	// Playtime feature
+	register_clcmd("say /pt", "Command_PlayTimeCheck")
+	register_clcmd("say /playtime", "Command_PlayTimeCheck")
+
+	gVault = nvault_open("HDR_PlayTime_Data")
 	
 	g_bFirstRound = true
 	g_iHudSync = CreateHudSyncObj()
@@ -131,6 +151,8 @@ public plugin_natives()
 	register_native("hdr_get_activator", "native_hdr_get_activator")
 	register_native("hdr_get_next_activator", "native_hdr_get_next_activator")
 	register_native("hdr_set_next_activator", "native_hdr_set_next_activator")
+
+	register_native("hdr_get_user_playtime", "native_hdr_get_user_playtime")
 }
 
 public native_hdr_get_activator(iPlugin, iParams)
@@ -152,6 +174,17 @@ public native_hdr_set_next_activator(iPlugin, iParams)
 	new id = get_param(arg_index)
 
 	g_iNextActivator = id
+}
+
+public native_hdr_get_user_playtime(iPlugin, iParams)
+{
+	enum
+	{
+		arg_index = 1
+	}
+	new id = get_param(arg_index)
+
+	return get_user_total_playtime(id)
 }
 
 public plugin_cfg()
@@ -413,6 +446,10 @@ public client_putinserver(id)
 {
 	g_bConnected[id] = true
 
+	new szName[MAX_NAME_LENGTH]
+	get_user_name(id, szName, charsmax(szName))
+	set_task(0.1, "Load", id, szName, sizeof(szName))
+
 	set_task(0.1, "Update_Teams_For_New_Connect", id)
 }
 
@@ -428,6 +465,11 @@ public Update_Teams_For_New_Connect(id)
 public client_disconnected(id)
 {
 	g_bConnected[id] = false
+
+	new szName[MAX_NAME_LENGTH]
+	get_user_name(id, szName, charsmax(szName))
+		
+	Save(id, szName)
 
 	if (id == g_iActivator)
 	{
@@ -547,6 +589,19 @@ public Block_RadioCommands(id)
 
 	return HDR_CONTINUE
 }
+
+public Command_PlayTimeCheck(id)
+{
+	if (is_user_connected(id))
+	{
+		new szTime[128]
+		get_time_length(id, get_user_total_playtime(id), timeunit_seconds, szTime, charsmax(szTime))
+		PCC(id, "Jumper: !g%n !y>> [!tPlayTime: !g%s !y| !tConnects: !g%i!y]", id, szTime, g_iPlayer_Connections[id])
+		return HDR_CONTINUE
+	}
+	return HDR_HANDLED
+}
+
 public RestartRound()
 {
 	set_pcvar_num(g_pSvRestart, 1)
@@ -639,4 +694,37 @@ stock block_user_radio(id)
 {
 	const m_iRadiosLeft = 192;
 	set_pdata_int(id, m_iRadiosLeft, 0);
+}
+
+// Playtime feature
+public Load(szName[], id)
+{
+	if (!is_user_connected(id))
+		return
+	
+	new szData[64]
+	
+	if(nvault_get(gVault, szName, szData, charsmax(szData)))
+	{
+		replace_all(szData, charsmax(szData), "#", " ")
+		
+		new szTime[32], szConnections[11]
+		parse(szData, szTime, charsmax(szTime), szConnections, charsmax(szConnections))
+		
+		g_iPlayer_PlayedTime[id] = str_to_num(szTime)
+		g_iPlayer_Connections[id] = str_to_num(szConnections)
+		g_iPlayer_Connections[id]++
+	} 
+	else 
+	{
+		g_iPlayer_PlayedTime[id] = 0
+		g_iPlayer_Connections[id] = 1
+	}
+}
+
+public Save(id, szName[])
+{
+	new szData[64]
+	formatex(szData, charsmax(szData), "%i#%i", get_user_total_playtime(id), g_iPlayer_Connections[id])
+	nvault_set(gVault, szName, szData)
 }
